@@ -1,0 +1,71 @@
+!pip install -q numpy opencv-python matplotlib
+
+import numpy as np
+import cv2
+import matplotlib
+matplotlib.use('Agg')   # <- Safe for Colab (no GUI backend)
+import matplotlib.pyplot as plt
+from IPython.display import Image, display
+import tempfile, os
+
+# ---------- Rotation helpers ----------
+def rot_x(a): c, s = np.cos(a), np.sin(a); return np.array([[1,0,0],[0,c,-s],[0,s,c]])
+def rot_y(a): c, s = np.cos(a), np.sin(a); return np.array([[c,0,s],[0,1,0],[-s,0,c]])
+def rot_z(a): c, s = np.cos(a), np.sin(a); return np.array([[c,-s,0],[s,c,0],[0,0,1]])
+
+# ---------- Projections ----------
+def project_orthographic(points3d, R, t, scale=1.0):
+    pts = (R @ points3d.T).T + t
+    return pts[:, :2] * scale
+
+def project_perspective_cv(points3d, R, t, f=800.0, cx=320.0, cy=240.0):
+    rvec, _ = cv2.Rodrigues(R.astype(np.float64))
+    tvec = np.array(t, dtype=np.float64).reshape((3,1))
+    K = np.array([[f,0,cx],[0,f,cy],[0,0,1]], dtype=np.float64)
+    dist = np.zeros((4,1), dtype=np.float64)
+    pts_proj, _ = cv2.projectPoints(points3d.astype(np.float64), rvec, tvec, K, dist)
+    return pts_proj.reshape(-1,2)
+
+# ---------- Example cube ----------
+def make_cube(size=1.0):
+    s = size/2.0
+    vertices = np.array([
+        [-s,-s,-s],[ s,-s,-s],[ s, s,-s],[-s, s,-s],
+        [-s,-s, s],[ s,-s, s],[ s, s, s],[-s, s, s]
+    ], dtype=float)
+    edges = [(0,1),(1,2),(2,3),(3,0),(4,5),(5,6),(6,7),(7,4),(0,4),(1,5),(2,6),(3,7)]
+    return vertices, edges
+
+# ---------- Draw ----------
+def draw_projection(ax, pts2, edges, title):
+    for i,j in edges:
+        ax.plot([pts2[i,0], pts2[j,0]], [pts2[i,1], pts2[j,1]], 'b-', lw=2)
+    ax.scatter(pts2[:,0], pts2[:,1], c='r', s=30)
+    ax.set_title(title)
+    ax.set_aspect('equal')
+    ax.invert_yaxis()
+    ax.axis('off')
+
+# ---------- Main ----------
+vertices, edges = make_cube(2.0)
+yaw, pitch, roll = np.deg2rad([30, -20, 10])
+R = rot_z(roll) @ rot_y(pitch) @ rot_x(yaw)
+t = np.array([0,0,6], dtype=np.float64)
+
+# project
+ortho_2d = project_orthographic(vertices, R, t, scale=120)
+persp_2d = project_perspective_cv(vertices, R, t, f=800, cx=320, cy=240)
+ortho_2d[:,0] += 320; ortho_2d[:,1] += 240
+
+# plot to an image file (for Colab display)
+fig, axs = plt.subplots(1,2, figsize=(10,5))
+draw_projection(axs[0], ortho_2d, edges, "Orthographic Projection")
+draw_projection(axs[1], persp_2d, edges, "Perspective Projection")
+
+tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+fig.savefig(tmp.name, bbox_inches='tight')
+plt.close(fig)
+display(Image(filename=tmp.name))
+os.unlink(tmp.name)
+
+
